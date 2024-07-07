@@ -1,4 +1,3 @@
-# take_photo.py
 import streamlit as st
 import os
 import time
@@ -35,7 +34,6 @@ if not os.path.exists(PHOTO_DIR):
 def capture_photo(filename):
     os.system(f'gphoto2 --capture-image-and-download --filename={filename}')
 
-
 def send_email(recipient, subject, body):
     msg = EmailMessage()
     msg['From'] = formataddr(('😎Photobooth Jeevapathai🎥', SMTP_USER))
@@ -47,7 +45,7 @@ def send_email(recipient, subject, body):
         server.starttls()
         server.login(SMTP_USER, SMTP_PASSWORD)
         server.send_message(msg)
-        
+
 # Fonction pour téléverser une photo dans Firebase Storage et enregistrer les métadonnées dans Firestore
 def upload_to_firebase(local_path, filename, email):
     # Upload de la photo dans le bucket Firebase Storage
@@ -65,28 +63,42 @@ def upload_to_firebase(local_path, filename, email):
     return blob.public_url
 
 st.title('Prendre une photo')
-email = st.text_input('Entrez votre email :')
-
-if st.button('Prendre une photo'):
+email_placeholder = st.empty()
+email = email_placeholder.text_input('Entrez votre email :')
+button_placeholder = st.empty()
+ok_button = button_placeholder.button('Prendre une photo')
+if ok_button:
     if email:
         try:
             validate_email(email)
-            st.write('Préparation pour la prise de photo dans 10 secondes...')
-            st.image(GIF_PATH, caption='Souriez !')
+            gif_placeholder = st.empty()
+            gif_placeholder.image(GIF_PATH, caption='Souriez !')
 
             countdown_placeholder = st.empty()
             for i in range(10, 0, -1):
                 countdown_placeholder.text(f"Photo dans {i} secondes...")
                 time.sleep(1)
-            countdown_placeholder.text("Chargement de votre photo...")
+
+            countdown_placeholder.empty()  # Supprimer le message de décompte
+
+            loading_message_placeholder = st.empty()
+            loading_message_placeholder.text("Chargement de votre photo...")
+
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             photo_filename = f'photo_{timestamp}.jpg'
             photo_path = os.path.join(PHOTO_DIR, photo_filename)
             capture_photo(photo_path)
-            st.image(photo_path, caption='Voici votre photo !')
 
             photo_url = upload_to_firebase(photo_path, photo_filename, email)
             send_email(email, 'Votre photo Photobooth', f"Merci d'utiliser notre photobooth ! Voici le lien vers votre photo : {photo_url}")
+            loading_message_placeholder.empty()  # Supprimer le message de chargement
+            countdown_placeholder.empty() 
+            gif_placeholder.empty()
+            email_placeholder.empty()
+            button_placeholder.empty()
+            st.image(photo_path, caption='Voici votre photo !')
+
+            photo_url = upload_to_firebase(photo_path, photo_filename, email)
             st.success(f"L'e-mail avec le lien vers votre photo a été envoyé à {email}")
             
             # Bouton pour prendre une nouvelle photo sans rafraîchir automatiquement la page
