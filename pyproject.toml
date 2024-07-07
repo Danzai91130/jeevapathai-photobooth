@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "jvp-photobooth"
+version = "0.1.0"
+description = "photobooth app for all jeevapathai's events"
+authors = ["WilfriedPonnou <wilfried.ponnou@efrei.net>"]
+license = "jeevapathai"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+streamlit = "^1.36.0"
+email-validator = "^2.2.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
