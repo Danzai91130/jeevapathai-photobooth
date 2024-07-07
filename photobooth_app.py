@@ -1,3 +1,4 @@
+# take_photo.py
 import streamlit as st
 import os
 import time
@@ -6,76 +7,94 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from email_validator import validate_email, EmailNotValidError
 from datetime import datetime
+import ast
+import firebase_admin
+from firebase_admin import credentials, storage, firestore
+from config import SMTP_SERVER, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, PHOTO_DIR, GIF_PATH, FIREBASE_PROJECT_ID
 
-# Configuration SMTP
-SMTP_SERVER = 'smtp-mail.outlook.com'
-SMTP_PORT = 587
-SMTP_USER = 'poleservicejeevapathai@outlook.com'
-SMTP_PASSWORD = 'Wefollowchrist91'
+# Convertir les informations d'identification de la base de données en dictionnaire
+db_creds = ast.literal_eval(st.secrets.db_credentials['json_credentials'])
 
-# Dossier pour stocker les photos
-PHOTO_DIR = 'photos'
+# Vérifier si l'application Firebase est déjà initialisée
+if not firebase_admin._apps:
+    cred = credentials.Certificate(db_creds)
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': f'{FIREBASE_PROJECT_ID}.appspot.com'
+    })
+
+# Initialiser le client Firestore
+db = firestore.client()
+
+# Initialiser le bucket de stockage
+bucket_name = f'{FIREBASE_PROJECT_ID}.appspot.com'
+bucket = storage.bucket(bucket_name)
 
 if not os.path.exists(PHOTO_DIR):
     os.makedirs(PHOTO_DIR)
 
-# Fonctions pour capturer la photo et envoyer l'email
 def capture_photo(filename):
-    # Commande pour capturer une photo avec gphoto2
     os.system(f'gphoto2 --capture-image-and-download --filename={filename}')
 
-def send_email(recipient, subject, body, attachment_path):
+
+def send_email(recipient, subject, body):
     msg = EmailMessage()
-    msg['From'] = formataddr(('Photobooth', SMTP_USER))
+    msg['From'] = formataddr(('😎Photobooth Jeevapathai🎥', SMTP_USER))
     msg['To'] = recipient
     msg['Subject'] = subject
     msg.set_content(body)
-
-    with open(attachment_path, 'rb') as f:
-        file_data = f.read()
-        file_name = os.path.basename(attachment_path)
-        msg.add_attachment(file_data, maintype='image', subtype='jpeg', filename=file_name)
 
     with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
         server.starttls()
         server.login(SMTP_USER, SMTP_PASSWORD)
         server.send_message(msg)
+        
+# Fonction pour téléverser une photo dans Firebase Storage et enregistrer les métadonnées dans Firestore
+def upload_to_firebase(local_path, filename, email):
+    # Upload de la photo dans le bucket Firebase Storage
+    blob = bucket.blob(filename)
+    blob.upload_from_filename(local_path)
+    blob.make_public()
 
-# Streamlit interface
-st.sidebar.title('Photobooth')
-page = st.sidebar.selectbox('Choisissez une page', ['Prendre une photo', 'Voir les photos'])
+    # Enregistrer les métadonnées dans Firestore
+    doc_ref = db.collection('photos').document(filename)
+    doc_ref.set({
+        'email': email,
+        'photo_url': blob.public_url
+    })
 
-if page == 'Prendre une photo':
-    st.title('Prendre une photo')
-    email = st.text_input('Entrez votre email :')
+    return blob.public_url
 
-    if st.button('Prendre une photo'):
-        if email:
-            try:
-                # Validation de l'email
-                validate_email(email)
-                st.write('Préparation pour la prise de photo dans 10 secondes...')
-                time.sleep(10)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                photo_path = os.path.join(PHOTO_DIR, f'photo_{timestamp}.jpg')
-                capture_photo(photo_path)
-                st.image(photo_path, caption='Voici votre photo !')
-                send_email(email, 'Votre photo Photobooth', 'Merci d\'utiliser notre photobooth !', photo_path)
-                st.success(f'La photo a été envoyée à {email}')
-                st.experimental_rerun()  # Rafraîchir la page après la prise de photo
-            except EmailNotValidError as e:
-                st.error(f'Email invalide : {e}')
-            except Exception as e:
-                st.error(f'Erreur lors de la prise ou de l\'envoi de la photo : {e}')
-        else:
-            st.error('Veuillez entrer un email valide.')
+st.title('Prendre une photo')
+email = st.text_input('Entrez votre email :')
 
-elif page == 'Voir les photos':
-    st.title('Voir les photos')
-    photos = [os.path.join(PHOTO_DIR, file) for file in os.listdir(PHOTO_DIR) if file.endswith('.jpg')]
+if st.button('Prendre une photo'):
+    if email:
+        try:
+            validate_email(email)
+            st.write('Préparation pour la prise de photo dans 10 secondes...')
+            st.image(GIF_PATH, caption='Souriez !')
 
-    if photos:
-        for photo in sorted(photos, reverse=True):
-            st.image(photo, caption=os.path.basename(photo))
+            countdown_placeholder = st.empty()
+            for i in range(10, 0, -1):
+                countdown_placeholder.text(f"Photo dans {i} secondes...")
+                time.sleep(1)
+            countdown_placeholder.text("Chargement de votre photo...")
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            photo_filename = f'photo_{timestamp}.jpg'
+            photo_path = os.path.join(PHOTO_DIR, photo_filename)
+            capture_photo(photo_path)
+            st.image(photo_path, caption='Voici votre photo !')
+
+            photo_url = upload_to_firebase(photo_path, photo_filename, email)
+            send_email(email, 'Votre photo Photobooth', f"Merci d'utiliser notre photobooth ! Voici le lien vers votre photo : {photo_url}")
+            st.success(f"L'e-mail avec le lien vers votre photo a été envoyé à {email}")
+            
+            # Bouton pour prendre une nouvelle photo sans rafraîchir automatiquement la page
+            if st.button('Nouvelle photo'):
+                st.experimental_rerun()
+        except EmailNotValidError as e:
+            st.error(f'Email invalide : {e}')
+        except Exception as e:
+            st.error(f'Erreur lors de la prise ou de l\'envoi de la photo : {e}')
     else:
-        st.write('Aucune photo disponible.')
+        st.error('Veuillez entrer un email valide.')
